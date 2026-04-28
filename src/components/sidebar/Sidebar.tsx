@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import {
-  Brain, Plus, Search, GitFork, FileText, LogOut, Trash2
+  Brain, Plus, Search, GitFork, FileText, LogOut, Trash2, Loader2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDistanceToNow } from '@/lib/date'
@@ -18,9 +18,10 @@ import { formatDistanceToNow } from '@/lib/date'
 export default function Sidebar() {
   const router = useRouter()
   const pathname = usePathname()
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
   const { notes, activeNoteId, searchQuery, setNotes, setActiveNote, setSearchQuery, addNote, deleteNote } =
     useNotesStore()
+  const [creating, setCreating] = useState(false)
 
   const loadNotes = useCallback(async () => {
     const { data } = await supabase
@@ -33,15 +34,27 @@ export default function Sidebar() {
   useEffect(() => { loadNotes() }, [loadNotes])
 
   async function createNote() {
-    const { data, error } = await supabase
-      .from('notes')
-      .insert({ title: 'Untitled', content: '' })
-      .select()
-      .single()
-    if (data && !error) {
-      addNote(data)
-      setActiveNote(data.id)
-      router.push(`/notes/${data.id}`)
+    setCreating(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/login'); return }
+
+      const { data, error } = await supabase
+        .from('notes')
+        .insert({ title: 'Untitled', content: '', user_id: user.id })
+        .select()
+        .single()
+
+      if (data && !error) {
+        addNote(data)
+        setActiveNote(data.id)
+        router.push(`/notes/${data.id}`)
+      } else {
+        console.error('Create note error:', error?.message)
+        alert('Không thể tạo ghi chú: ' + (error?.message ?? 'Lỗi không xác định'))
+      }
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -81,9 +94,12 @@ export default function Sidebar() {
       <div className="p-3 space-y-2">
         <Button
           onClick={createNote}
-          className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm h-8 gap-1.5"
+          disabled={creating}
+          className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm h-8 gap-1.5 disabled:opacity-70"
         >
-          <Plus className="w-3.5 h-3.5" /> Ghi chú mới
+          {creating
+            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Đang tạo...</>
+            : <><Plus className="w-3.5 h-3.5" /> Ghi chú mới</>}
         </Button>
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
